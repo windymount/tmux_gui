@@ -10,28 +10,28 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# Standard 8 ANSI colors (normal intensity)
+# Standard 8 ANSI colors — xterm-256color default palette
 ANSI_COLORS = [
     "#000000",  # 0 black
-    "#CC0000",  # 1 red
-    "#00CC00",  # 2 green
-    "#CCCC00",  # 3 yellow
-    "#0000CC",  # 4 blue
-    "#CC00CC",  # 5 magenta
-    "#00CCCC",  # 6 cyan
-    "#CCCCCC",  # 7 white
+    "#800000",  # 1 red (maroon)
+    "#008000",  # 2 green
+    "#808000",  # 3 yellow (olive)
+    "#000080",  # 4 blue (navy)
+    "#800080",  # 5 magenta (purple)
+    "#008080",  # 6 cyan (teal)
+    "#c0c0c0",  # 7 white (silver)
 ]
 
-# Bright variants
+# Bright variants — xterm-256color defaults
 ANSI_BRIGHT_COLORS = [
-    "#555555",  # 8  bright black (gray)
-    "#FF5555",  # 9  bright red
-    "#55FF55",  # 10 bright green
-    "#FFFF55",  # 11 bright yellow
-    "#5555FF",  # 12 bright blue
-    "#FF55FF",  # 13 bright magenta
-    "#55FFFF",  # 14 bright cyan
-    "#FFFFFF",  # 15 bright white
+    "#808080",  # 8  bright black (gray)
+    "#ff0000",  # 9  bright red
+    "#00ff00",  # 10 bright green
+    "#ffff00",  # 11 bright yellow
+    "#0000ff",  # 12 bright blue
+    "#ff00ff",  # 13 bright magenta
+    "#00ffff",  # 14 bright cyan
+    "#ffffff",  # 15 bright white
 ]
 
 # Regex matching ESC[ ... m  (SGR sequence)
@@ -200,21 +200,25 @@ def _parse_extended_color(codes: list[int], start: int) -> tuple[str | None, int
     return None, 1
 
 
+# xterm 6x6x6 color cube intensity values (indices 0-5)
+_CUBE_VALUES = [0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff]
+
+
 def _color_256(n: int) -> str:
-    """Convert a 256-color index to a hex color string."""
+    """Convert a 256-color index to a hex color string (xterm-256color)."""
     if n < 8:
         return ANSI_COLORS[n]
     if n < 16:
         return ANSI_BRIGHT_COLORS[n - 8]
 
-    # 216-color cube: 16-231
+    # 216-color cube: 16-231, using xterm intensity values
     if n < 232:
         n -= 16
-        b = n % 6
-        g = (n // 6) % 6
-        r = n // 36
-        return f"#{r * 51:02x}{g * 51:02x}{b * 51:02x}"
+        b = _CUBE_VALUES[n % 6]
+        g = _CUBE_VALUES[(n // 6) % 6]
+        r = _CUBE_VALUES[n // 36]
+        return f"#{r:02x}{g:02x}{b:02x}"
 
     # Grayscale ramp: 232-255
-    g = 8 + (n - 232) * 10
-    return f"#{g:02x}{g:02x}{g:02x}"
+    v = 8 + (n - 232) * 10
+    return f"#{v:02x}{v:02x}{v:02x}"
