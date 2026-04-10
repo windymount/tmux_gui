@@ -42,16 +42,16 @@ PANE_FMT = SEP.join([
 
 
 # tmux colour name -> hex mapping (the 8 standard terminal colors)
-# tmux named colors map to xterm-256color standard palette (same as ANSI 0-7)
+# tmux named colors — Campbell palette (matches Windows Terminal defaults)
 _TMUX_NAMED_COLORS: dict[str, str] = {
-    "black": "#000000", "red": "#800000", "green": "#008000",
-    "yellow": "#808000", "blue": "#000080", "magenta": "#800080",
-    "cyan": "#008080", "white": "#c0c0c0",
+    "black": "#0c0c0c", "red": "#c50f1f", "green": "#13a10e",
+    "yellow": "#c19c00", "blue": "#0037da", "magenta": "#881798",
+    "cyan": "#3a96dd", "white": "#cccccc",
     # Bright variants (tmux uses "bright" prefix)
-    "brightblack": "#808080", "brightred": "#ff0000",
-    "brightgreen": "#00ff00", "brightyellow": "#ffff00",
-    "brightblue": "#0000ff", "brightmagenta": "#ff00ff",
-    "brightcyan": "#00ffff", "brightwhite": "#ffffff",
+    "brightblack": "#767676", "brightred": "#e74856",
+    "brightgreen": "#16c60c", "brightyellow": "#f9f1a5",
+    "brightblue": "#3b78ff", "brightmagenta": "#b4009e",
+    "brightcyan": "#61d6d6", "brightwhite": "#f2f2f2",
     "default": "",
 }
 

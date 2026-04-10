@@ -10,28 +10,30 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# Standard 8 ANSI colors — xterm-256color default palette
+# Standard 8 ANSI colors — Windows Terminal "Campbell" palette.
+# This matches the default colors on Windows Terminal, PowerShell, and
+# is close to what most modern terminals (iTerm2, GNOME Terminal) display.
 ANSI_COLORS = [
-    "#000000",  # 0 black
-    "#800000",  # 1 red (maroon)
-    "#008000",  # 2 green
-    "#808000",  # 3 yellow (olive)
-    "#000080",  # 4 blue (navy)
-    "#800080",  # 5 magenta (purple)
-    "#008080",  # 6 cyan (teal)
-    "#c0c0c0",  # 7 white (silver)
+    "#0c0c0c",  # 0 black
+    "#c50f1f",  # 1 red
+    "#13a10e",  # 2 green
+    "#c19c00",  # 3 yellow
+    "#0037da",  # 4 blue
+    "#881798",  # 5 magenta
+    "#3a96dd",  # 6 cyan
+    "#cccccc",  # 7 white
 ]
 
-# Bright variants — xterm-256color defaults
+# Bright variants — Campbell palette
 ANSI_BRIGHT_COLORS = [
-    "#808080",  # 8  bright black (gray)
-    "#ff0000",  # 9  bright red
-    "#00ff00",  # 10 bright green
-    "#ffff00",  # 11 bright yellow
-    "#0000ff",  # 12 bright blue
-    "#ff00ff",  # 13 bright magenta
-    "#00ffff",  # 14 bright cyan
-    "#ffffff",  # 15 bright white
+    "#767676",  # 8  bright black (gray)
+    "#e74856",  # 9  bright red
+    "#16c60c",  # 10 bright green
+    "#f9f1a5",  # 11 bright yellow
+    "#3b78ff",  # 12 bright blue
+    "#b4009e",  # 13 bright magenta
+    "#61d6d6",  # 14 bright cyan
+    "#f2f2f2",  # 15 bright white
 ]
 
 # Regex matching ESC[ ... m  (SGR sequence)

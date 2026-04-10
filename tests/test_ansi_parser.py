@@ -19,7 +19,7 @@ class TestParseAnsi:
         spans = parse_ansi("\x1b[31mhello\x1b[0m world")
         assert len(spans) == 2
         assert spans[0].text == "hello"
-        assert spans[0].style.fg == "#800000"  # red (xterm)
+        assert spans[0].style.fg == "#c50f1f"  # red (Campbell)
         assert spans[1].text == " world"
         assert spans[1].style.fg is None  # reset
 
@@ -33,7 +33,7 @@ class TestParseAnsi:
         spans = parse_ansi("\x1b[1;32mOK\x1b[0m")
         assert spans[0].text == "OK"
         assert spans[0].style.bold is True
-        assert spans[0].style.fg == "#008000"
+        assert spans[0].style.fg == "#13a10e"
 
     def test_256_color(self):
         # 256-color foreground: color index 196 (bright red in the cube)
@@ -49,18 +49,18 @@ class TestParseAnsi:
     def test_background_color(self):
         spans = parse_ansi("\x1b[44mblue bg\x1b[0m")
         assert spans[0].text == "blue bg"
-        assert spans[0].style.bg == "#000080"
+        assert spans[0].style.bg == "#0037da"
 
     def test_bright_colors(self):
         spans = parse_ansi("\x1b[91mbright red\x1b[0m")
         assert spans[0].text == "bright red"
-        assert spans[0].style.fg == "#ff0000"
+        assert spans[0].style.fg == "#e74856"
 
     def test_reset_clears_all(self):
         spans = parse_ansi("\x1b[1;4;31mstuff\x1b[0mplain")
         assert spans[0].style.bold is True
         assert spans[0].style.underline is True
-        assert spans[0].style.fg == "#800000"
+        assert spans[0].style.fg == "#c50f1f"
         assert spans[1].style.bold is False
         assert spans[1].style.underline is False
         assert spans[1].style.fg is None
@@ -79,12 +79,12 @@ class TestColor256:
     """Test the 256-color lookup function."""
 
     def test_standard_colors(self):
-        assert _color_256(0) == "#000000"
-        assert _color_256(1) == "#800000"
+        assert _color_256(0) == "#0c0c0c"
+        assert _color_256(1) == "#c50f1f"
 
     def test_bright_colors(self):
-        assert _color_256(8) == "#808080"
-        assert _color_256(15) == "#ffffff"
+        assert _color_256(8) == "#767676"
+        assert _color_256(15) == "#f2f2f2"
 
     def test_color_cube(self):
         # Color 16 = 0,0,0 in the cube
