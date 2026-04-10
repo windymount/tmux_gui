@@ -196,6 +196,7 @@ class MainWindow(QMainWindow):
         self._conn_tree.window_selected.connect(self._on_tree_window_selected)
         self._window_tabs.tab_selected.connect(self._on_tab_selected)
         self._pane_layout.on_pane_resize = self._on_pane_resized
+        self._pane_layout.on_history_requested = self._on_pane_history_requested
 
     # ---------- polling ----------
 
@@ -356,6 +357,20 @@ class MainWindow(QMainWindow):
             self._run_async(
                 self._tmux.resize_pane(self._current_host, pane_id, width, height)
             )
+
+    def _on_pane_history_requested(self, pane_id: str, line_count: int) -> None:
+        """Fetch scrollback history when user scrolls up in a pane."""
+        if self._current_host:
+            self._run_async(self._fetch_pane_history(pane_id, line_count))
+
+    async def _fetch_pane_history(self, pane_id: str, line_count: int) -> None:
+        try:
+            content = await self._tmux.capture_pane_lines(
+                self._current_host, pane_id, line_count
+            )
+            self._pane_layout.update_pane_history(pane_id, content)
+        except Exception:
+            logger.debug("Failed to fetch history for %s", pane_id, exc_info=True)
 
     def _on_history(self) -> None:
         pane_id = self._pane_layout.active_pane_id

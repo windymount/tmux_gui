@@ -172,6 +172,13 @@ class TmuxManager(QObject):
             args.extend(["-S", "-"])
         return await self._ssh.exec(host_name, _tmux_cmd(*args))
 
+    async def capture_pane_lines(
+        self, host_name: str, pane_id: str, line_count: int
+    ) -> str:
+        """Capture the last *line_count* lines of scrollback plus visible content."""
+        args = ["capture-pane", "-t", pane_id, "-p", "-e", "-S", f"-{line_count}"]
+        return await self._ssh.exec(host_name, _tmux_cmd(*args))
+
     # ---------- actions ----------
 
     async def select_window(

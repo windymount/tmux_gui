@@ -26,8 +26,9 @@ class PaneLayoutWidget(QWidget):
         self._current_layout: str = ""  # track layout string to avoid needless rebuilds
         self._splitters: list[QSplitter] = []  # all splitters for signal tracking
 
-        # Callback set by MainWindow for resize-pane commands
+        # Callbacks set by MainWindow
         self.on_pane_resize: object | None = None  # callable(pane_id, width, height)
+        self.on_history_requested: object | None = None  # callable(pane_id, line_count)
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -73,6 +74,12 @@ class PaneLayoutWidget(QWidget):
         if widget:
             widget.set_content(content)
 
+    def update_pane_history(self, pane_id: str, content: str) -> None:
+        """Deliver scrollback history content to a pane widget."""
+        widget = self._pane_widgets.get(pane_id)
+        if widget:
+            widget.set_history_content(content)
+
     def _rebuild(self, window: TmuxWindow) -> None:
         """Full rebuild of the splitter tree from a layout string."""
         self._clear_layout()
@@ -116,6 +123,7 @@ class PaneLayoutWidget(QWidget):
                 font_size=self._config.font_size,
             )
             pw.clicked.connect(self._on_pane_clicked)
+            pw.history_requested.connect(self._on_history_requested)
             self._pane_widgets[pane_id] = pw
             return pw
 
@@ -146,6 +154,10 @@ class PaneLayoutWidget(QWidget):
 
     def _on_pane_clicked(self, pane_id: str) -> None:
         self._set_active(pane_id)
+
+    def _on_history_requested(self, pane_id: str, line_count: int) -> None:
+        if self.on_history_requested:
+            self.on_history_requested(pane_id, line_count)
 
     def _set_active(self, pane_id: str) -> None:
         if self._active_pane_id == pane_id:
