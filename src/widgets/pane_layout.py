@@ -45,6 +45,12 @@ class PaneLayoutWidget(QWidget):
         self._resize_timer.setInterval(300)  # ms
         self._resize_timer.timeout.connect(self._emit_window_resize)
 
+        # Debounce splitter-moved events
+        self._splitter_timer = QTimer(self)
+        self._splitter_timer.setSingleShot(True)
+        self._splitter_timer.setInterval(300)  # ms
+        self._splitter_timer.timeout.connect(self._emit_pane_resizes)
+
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._root_widget: QWidget | None = None
@@ -78,6 +84,8 @@ class PaneLayoutWidget(QWidget):
                 break
 
     def clear(self) -> None:
+        self._resize_timer.stop()
+        self._splitter_timer.stop()
         self._clear_layout()
         self._active_pane_id = None
         self._current_window = None
@@ -200,26 +208,24 @@ class PaneLayoutWidget(QWidget):
         self.on_window_resize(cols, rows)
 
     def _on_splitter_moved(self, pos: int, index: int) -> None:
-        """When user drags a splitter, sync the new sizes back to tmux."""
+        """Debounce splitter drag — actual resize fires after 300ms."""
+        if self._current_window and self.on_pane_resize:
+            self._splitter_timer.start()
+
+    def _emit_pane_resizes(self) -> None:
+        """Convert pane widget pixel sizes to tmux cells and send resize commands."""
         if not self._current_window or not self.on_pane_resize:
             return
-
-        # Collect current pixel sizes of all pane widgets and translate
-        # to proportional tmux cell sizes
         window = self._current_window
         if not window.panes:
             return
 
-        # Calculate the ratio between Qt pixels and tmux cells
         total_qt_w = self.width() if self.width() > 0 else 1
         total_qt_h = self.height() if self.height() > 0 else 1
         tmux_w = window.width if window.width > 0 else 80
         tmux_h = window.height if window.height > 0 else 24
 
         for pane_id, widget in self._pane_widgets.items():
-            qt_w = widget.width()
-            qt_h = widget.height()
-            # Convert Qt pixel size to tmux cell count
-            new_w = max(1, round(qt_w / total_qt_w * tmux_w))
-            new_h = max(1, round(qt_h / total_qt_h * tmux_h))
+            new_w = max(1, round(widget.width() / total_qt_w * tmux_w))
+            new_h = max(1, round(widget.height() / total_qt_h * tmux_h))
             self.on_pane_resize(pane_id, new_w, new_h)

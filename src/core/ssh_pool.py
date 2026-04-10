@@ -122,6 +122,11 @@ class SSHPool:
             conn = await self._ensure_connected(hc)
             try:
                 result = await conn.run(cmd)
+                if result.returncode and result.stderr:
+                    logger.debug(
+                        "Command exited %d on %s: %s",
+                        result.returncode, host_name, result.stderr.strip(),
+                    )
                 return result.stdout or ""
             except (asyncssh.ConnectionLost, asyncssh.DisconnectError, OSError) as exc:
                 logger.warning(

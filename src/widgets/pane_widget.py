@@ -26,6 +26,7 @@ class PaneWidget(QFrame):
 
     # How many lines of history to fetch per scroll-up request
     HISTORY_CHUNK = 200
+    HISTORY_MAX = 10000  # upper bound to prevent unbounded growth
 
     def __init__(
         self,
@@ -174,8 +175,13 @@ class PaneWidget(QFrame):
 
         if scrolling_up and sb.value() <= sb.minimum():
             # Already at the top of current content — request more history
+            if self._history_lines >= self.HISTORY_MAX:
+                event.accept()
+                return  # capped — don't request more
             self._browsing_history = True
-            self._history_lines += self.HISTORY_CHUNK
+            self._history_lines = min(
+                self._history_lines + self.HISTORY_CHUNK, self.HISTORY_MAX
+            )
             self.history_requested.emit(self.pane_id, self._history_lines)
             event.accept()
             return

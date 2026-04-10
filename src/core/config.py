@@ -68,12 +68,19 @@ class AppConfig:
 
         # Atomic write: write to temp file first, then rename.
         # Prevents leaving an empty/corrupt config if interrupted mid-write.
+        tmp: str | None = None
         try:
             fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
             with open(fd, "w", encoding="utf-8") as f:
                 f.write(content)
             Path(tmp).replace(path)
         except OSError:
+            # Clean up leftover temp file
+            if tmp:
+                try:
+                    Path(tmp).unlink(missing_ok=True)
+                except OSError:
+                    pass
             # Fallback: direct write (e.g., if rename across drives fails)
             path.write_text(content, encoding="utf-8")
 
@@ -163,7 +170,7 @@ def parse_ssh_config(path: Path) -> list[ConnectionConfig]:
         hostname = current.get("hostname", "")
         if not alias or not hostname:
             return
-        # Skip wildcard patterns
+        # Skip wildcard-only aliases
         if "*" in alias or "?" in alias:
             return
         port = 22
@@ -204,7 +211,14 @@ def parse_ssh_config(path: Path) -> list[ConnectionConfig]:
 
         if key == "host":
             _flush()
-            current = {"host": value}
+            # Host can have multiple space-separated aliases; use first non-wildcard
+            aliases = value.split()
+            alias = next((a for a in aliases if "*" not in a and "?" not in a), "")
+            current = {"host": alias} if alias else {}
+        elif key == "match":
+            # Match blocks are not supported; flush and skip
+            _flush()
+            current = {}
         elif current:
             # Only store first occurrence of each key per host block
             if key not in current:

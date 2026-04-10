@@ -43,6 +43,7 @@ class MainWindow(QMainWindow):
         self._current_session: str | None = None  # session name
         self._current_window_index: int | None = None
         self._shutting_down = False
+        self._pending_tasks: set[asyncio.Task] = set()
 
         self._setup_window()
         self._build_menus()
@@ -485,8 +486,14 @@ class MainWindow(QMainWindow):
     # ---------- helpers ----------
 
     def _run_async(self, coro) -> None:
-        """Schedule a coroutine with error logging."""
-        task = asyncio.ensure_future(coro)
+        """Schedule a coroutine with error logging and prevent GC collection."""
+        try:
+            task = asyncio.ensure_future(coro)
+        except RuntimeError:
+            # Event loop already stopped (e.g., during shutdown)
+            return
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
         task.add_done_callback(self._on_async_done)
 
     def _on_async_done(self, task: asyncio.Task) -> None:
@@ -536,9 +543,12 @@ class MainWindow(QMainWindow):
         self._structure_timer.stop()
         self._content_timer.stop()
         self._config.save()
-        # Schedule graceful disconnect then quit
-        self._run_async(self._shutdown())
-        event.ignore()  # let _shutdown() call quit after awaiting disconnect
+        # Schedule graceful disconnect then quit; if event loop is gone, exit directly
+        try:
+            self._run_async(self._shutdown())
+            event.ignore()
+        except RuntimeError:
+            event.accept()
 
     async def _shutdown(self) -> None:
         """Gracefully close all SSH connections then quit the app."""
