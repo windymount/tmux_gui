@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont, QFontMetricsF, QResizeEvent
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
 from src.core.config import AppConfig
@@ -29,6 +30,20 @@ class PaneLayoutWidget(QWidget):
         # Callbacks set by MainWindow
         self.on_pane_resize: object | None = None  # callable(pane_id, width, height)
         self.on_history_requested: object | None = None  # callable(pane_id, line_count)
+        self.on_window_resize: object | None = None  # callable(cols, rows)
+
+        # Measure monospace cell size for pixel-to-cell conversion
+        font = QFont(config.font_family, config.font_size)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        fm = QFontMetricsF(font)
+        self._cell_width = fm.averageCharWidth()
+        self._cell_height = fm.height()
+
+        # Debounce resize events to avoid flooding tmux with resize commands
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(300)  # ms
+        self._resize_timer.timeout.connect(self._emit_window_resize)
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -169,6 +184,20 @@ class PaneLayoutWidget(QWidget):
         self._active_pane_id = pane_id
         if pane_id in self._pane_widgets:
             self._pane_widgets[pane_id].set_active(True)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Debounce widget resize into a tmux window resize command."""
+        super().resizeEvent(event)
+        if self._current_window and self.on_window_resize:
+            self._resize_timer.start()  # restart debounce
+
+    def _emit_window_resize(self) -> None:
+        """Convert widget pixel size to tmux cell dimensions and notify."""
+        if not self.on_window_resize or self._cell_width <= 0 or self._cell_height <= 0:
+            return
+        cols = max(1, int(self.width() / self._cell_width))
+        rows = max(1, int(self.height() / self._cell_height))
+        self.on_window_resize(cols, rows)
 
     def _on_splitter_moved(self, pos: int, index: int) -> None:
         """When user drags a splitter, sync the new sizes back to tmux."""

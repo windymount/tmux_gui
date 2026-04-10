@@ -197,6 +197,7 @@ class MainWindow(QMainWindow):
         self._window_tabs.tab_selected.connect(self._on_tab_selected)
         self._pane_layout.on_pane_resize = self._on_pane_resized
         self._pane_layout.on_history_requested = self._on_pane_history_requested
+        self._pane_layout.on_window_resize = self._on_window_resized
 
     # ---------- polling ----------
 
@@ -356,6 +357,16 @@ class MainWindow(QMainWindow):
         if self._current_host:
             self._run_async(
                 self._tmux.resize_pane(self._current_host, pane_id, width, height)
+            )
+
+    def _on_window_resized(self, cols: int, rows: int) -> None:
+        """Resize the tmux window when the GUI widget changes size."""
+        if self._current_host and self._current_session and self._current_window_index is not None:
+            self._run_async(
+                self._tmux.resize_window(
+                    self._current_host, self._current_session,
+                    self._current_window_index, cols, rows,
+                )
             )
 
     def _on_pane_history_requested(self, pane_id: str, line_count: int) -> None:

@@ -228,6 +228,19 @@ class TmuxManager(QObject):
     async def zoom_pane(self, host_name: str, pane_id: str) -> None:
         await self._ssh.exec(host_name, _tmux_cmd("resize-pane", "-t", pane_id, "-Z"))
 
+    async def resize_window(
+        self, host_name: str, session_name: str, window_index: int,
+        width: int, height: int,
+    ) -> None:
+        """Resize a tmux window to the given cell dimensions."""
+        if width < 1 or height < 1:
+            return
+        target = f"{session_name}:{window_index}"
+        await self._ssh.exec(
+            host_name,
+            _tmux_cmd("resize-window", "-t", target, "-x", str(width), "-y", str(height)),
+        )
+
     async def rename_window(
         self, host_name: str, session_name: str, window_index: int, new_name: str
     ) -> None:
