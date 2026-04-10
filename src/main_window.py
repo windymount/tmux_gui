@@ -298,6 +298,7 @@ class MainWindow(QMainWindow):
             self._content_timer.start()
             self._set_actions_enabled(True)
             self._update_status_bar()
+            self._sync_tmux_window_size()
         except Exception as exc:
             QMessageBox.critical(self, "Connection Failed", str(exc))
         finally:
@@ -413,6 +414,10 @@ class MainWindow(QMainWindow):
                 )
             )
 
+    def _sync_tmux_window_size(self) -> None:
+        """Send resize-window for the current tmux window to match the GUI size."""
+        self._pane_layout._resize_timer.start()  # triggers _emit_window_resize after debounce
+
     def _on_pane_history_requested(self, pane_id: str, line_count: int) -> None:
         """Fetch scrollback history when user scrolls up in a pane."""
         if self._current_host:
@@ -520,6 +525,7 @@ class MainWindow(QMainWindow):
                     first = min(session.windows.values(), key=lambda w: w.window_index)
                     self._current_window_index = first.window_index
                     self._pane_layout.set_window(first)
+                    self._sync_tmux_window_size()
         self._update_status_bar()
 
     def _on_tree_window_selected(
@@ -542,6 +548,7 @@ class MainWindow(QMainWindow):
                 self._tmux.select_window(host_name, session_name, window_index)
             )
         self._update_status_bar()
+        self._sync_tmux_window_size()
 
     def _on_tree_new_window(self, host_name: str, session_name: str) -> None:
         self._run_async(self._tmux.new_window(host_name, session_name))
@@ -593,6 +600,7 @@ class MainWindow(QMainWindow):
                             self._pane_layout.set_window(win)
                             break
         self._update_status_bar()
+        self._sync_tmux_window_size()
 
     # ---------- helpers ----------
 
