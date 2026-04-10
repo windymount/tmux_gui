@@ -49,7 +49,7 @@ class AppConfig:
     font_family: str = "Consolas"  # terminal/pane monospace font
     font_size: int = 10
     ui_font_family: str = ""  # UI font (menus, tabs, tree); empty = system default
-    ui_font_size: int = 0  # UI font size; 0 = system default
+    ui_font_size: int = 11  # UI font size; 0 = use system default size
     theme: str = "system"  # "system", "dark", "light"
 
     # --- persistence ---

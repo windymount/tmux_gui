@@ -133,19 +133,19 @@ class MainWindow(QMainWindow):
         self._act_history.setEnabled(False)
         self._act_history.triggered.connect(self._on_history)
 
-        # View menu — font size
+        # View menu — font size (both terminal and UI zoom together)
         view_menu = mb.addMenu("&View")
         act_zoom_in = view_menu.addAction("Zoom &In")
         act_zoom_in.setShortcut(QKeySequence("Ctrl+="))
-        act_zoom_in.triggered.connect(lambda: self._change_font_size(1))
+        act_zoom_in.triggered.connect(lambda: self._change_all_font_sizes(1))
 
         act_zoom_out = view_menu.addAction("Zoom &Out")
         act_zoom_out.setShortcut(QKeySequence("Ctrl+-"))
-        act_zoom_out.triggered.connect(lambda: self._change_font_size(-1))
+        act_zoom_out.triggered.connect(lambda: self._change_all_font_sizes(-1))
 
         act_zoom_reset = view_menu.addAction("&Reset Zoom")
         act_zoom_reset.setShortcut(QKeySequence("Ctrl+0"))
-        act_zoom_reset.triggered.connect(lambda: self._set_font_size(10))
+        act_zoom_reset.triggered.connect(self._reset_all_font_sizes)
 
     # ---------- toolbar ----------
 
@@ -324,24 +324,34 @@ class MainWindow(QMainWindow):
         """Apply UI font from config to the entire application."""
         from PySide6.QtGui import QFont
 
+        app = QApplication.instance()
+        size = self._config.ui_font_size or 11
         if self._config.ui_font_family:
-            font = QFont(self._config.ui_font_family, self._config.ui_font_size or 9)
-            QApplication.instance().setFont(font)
+            app.setFont(QFont(self._config.ui_font_family, size))
         else:
-            # Reset to system default
-            QApplication.instance().setFont(QApplication.instance().font())
+            font = app.font()
+            font.setPointSize(size)
+            app.setFont(font)
 
-    def _change_font_size(self, delta: int) -> None:
-        """Increase or decrease font size by *delta* points."""
-        new_size = max(6, min(32, self._config.font_size + delta))
-        self._set_font_size(new_size)
-
-    def _set_font_size(self, size: int) -> None:
-        """Set font size to an absolute value and apply live."""
-        self._config.font_size = size
-        self._pane_layout.update_font_size(size)
+    def _change_all_font_sizes(self, delta: int) -> None:
+        """Increase or decrease both terminal and UI font sizes by *delta*."""
+        new_term = max(6, min(32, self._config.font_size + delta))
+        new_ui = max(7, min(24, (self._config.ui_font_size or 11) + delta))
+        self._config.font_size = new_term
+        self._config.ui_font_size = new_ui
+        self._pane_layout.update_font_size(new_term)
+        self._apply_ui_font()
         self._config.save()
-        self.statusBar().showMessage(f"Font size: {size}pt", 2000)
+        self.statusBar().showMessage(f"Terminal: {new_term}pt  |  UI: {new_ui}pt", 2000)
+
+    def _reset_all_font_sizes(self) -> None:
+        """Reset both font sizes to defaults."""
+        self._config.font_size = 10
+        self._config.ui_font_size = 11
+        self._pane_layout.update_font_size(10)
+        self._apply_ui_font()
+        self._config.save()
+        self.statusBar().showMessage("Font sizes reset: Terminal 10pt, UI 11pt", 2000)
 
     def _on_settings(self) -> None:
         from src.widgets.settings_dialog import SettingsDialog
