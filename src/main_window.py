@@ -453,9 +453,18 @@ class MainWindow(QMainWindow):
             self._run_async(self._tmux.zoom_pane(self._current_host, pane_id))
 
     def _on_keys_pressed(self, pane_id: str, keys: str) -> None:
-        """Forward keyboard input to tmux pane."""
+        """Forward keyboard input to tmux pane, then immediately refresh."""
         if self._current_host and pane_id:
-            self._run_async(self._tmux.send_keys(self._current_host, pane_id, keys))
+            self._run_async(self._send_keys_and_refresh(pane_id, keys))
+
+    async def _send_keys_and_refresh(self, pane_id: str, keys: str) -> None:
+        """Send keys then immediately capture pane content for snappy feedback."""
+        try:
+            await self._tmux.send_keys(self._current_host, pane_id, keys)
+            content = await self._tmux.capture_pane(self._current_host, pane_id)
+            self._pane_layout.update_pane_content(pane_id, content)
+        except Exception:
+            logger.debug("send-keys or refresh failed for %s", pane_id, exc_info=True)
 
     def _on_history(self) -> None:
         pane_id = self._pane_layout.active_pane_id

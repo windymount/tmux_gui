@@ -36,7 +36,7 @@ class PollConfig:
     """Polling interval settings (milliseconds)."""
 
     structure_interval_ms: int = 3000
-    active_pane_interval_ms: int = 500
+    active_pane_interval_ms: int = 250
     inactive_pane_interval_ms: int = 2000
 
 
