@@ -18,6 +18,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+# Silence asyncssh's per-channel INFO spam (channel open/close/exit status)
+logging.getLogger("asyncssh").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
