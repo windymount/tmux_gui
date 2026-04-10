@@ -35,6 +35,9 @@ class TmuxWindow:
     layout: str  # raw layout string, e.g. "fb21,80x24,0,0{...}"
     active: bool
     pane_count: int
+    flags: str = ""  # e.g. "*", "-", "#", "!" (activity/bell/silence markers)
+    style_fg: str = ""  # tmux window-status fg color name
+    style_bg: str = ""  # tmux window-status bg color name
     panes: dict[str, TmuxPane] = field(default_factory=dict)  # keyed by pane_id
 
 

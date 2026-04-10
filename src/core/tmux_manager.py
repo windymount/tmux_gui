@@ -29,7 +29,8 @@ SESSION_FMT = SEP.join([
 WINDOW_FMT = SEP.join([
     "#{session_id}", "#{window_id}", "#{window_index}", "#{window_name}",
     "#{window_width}", "#{window_height}", "#{window_panes}",
-    "#{window_active}", "#{window_layout}",
+    "#{window_active}", "#{window_layout}", "#{window_flags}",
+    "#{window-status-current-style}", "#{window-status-style}",
 ])
 # Include window_id in pane format so we can associate without extra queries
 PANE_FMT = SEP.join([
@@ -38,6 +39,55 @@ PANE_FMT = SEP.join([
     "#{pane_top}", "#{pane_left}", "#{pane_bottom}", "#{pane_right}",
     "#{pane_active}", "#{pane_current_command}", "#{pane_pid}",
 ])
+
+
+# tmux colour name -> hex mapping (the 8 standard terminal colors)
+_TMUX_NAMED_COLORS: dict[str, str] = {
+    "black": "#000000", "red": "#cc0000", "green": "#00cc00",
+    "yellow": "#cccc00", "blue": "#0000cc", "magenta": "#cc00cc",
+    "cyan": "#00cccc", "white": "#cccccc",
+    "default": "",
+}
+
+
+def _tmux_color_to_hex(color: str) -> str:
+    """Convert a tmux color value to a hex string.
+
+    Handles: named colors, "colourN" (256-color), "#rrggbb" hex.
+    Returns empty string if the color is "default" or unrecognized.
+    """
+    color = color.strip().lower()
+    if not color or color == "default" or color == "terminal":
+        return ""
+    if color.startswith("#") and len(color) == 7:
+        return color
+    if color in _TMUX_NAMED_COLORS:
+        return _TMUX_NAMED_COLORS[color]
+    # "colourN" or "colorN" — 256-color index
+    if color.startswith("colour") or color.startswith("color"):
+        try:
+            from src.core.ansi_parser import _color_256
+            n = int(color.replace("colour", "").replace("color", ""))
+            return _color_256(n)
+        except (ValueError, IndexError):
+            return ""
+    return ""
+
+
+def _parse_tmux_style(style: str) -> tuple[str, str]:
+    """Parse a tmux style string like 'fg=colour2,bg=colour0,bold'.
+
+    Returns (fg_hex, bg_hex). Empty string means default/unset.
+    """
+    fg = ""
+    bg = ""
+    for part in style.split(","):
+        part = part.strip().lower()
+        if part.startswith("fg="):
+            fg = _tmux_color_to_hex(part[3:])
+        elif part.startswith("bg="):
+            bg = _tmux_color_to_hex(part[3:])
+    return fg, bg
 
 
 def _tmux_cmd(*args: str) -> str:
@@ -109,12 +159,16 @@ class TmuxManager(QObject):
         # Parse windows — associate with sessions via session_id in format
         for line in windows_raw.splitlines():
             fields = line.split(SEP)
-            if len(fields) < 9:
+            if len(fields) < 12:
                 continue
-            sid, wid, widx, wname, ww, wh, wpanes, wactive, wlayout = fields[:9]
+            (sid, wid, widx, wname, ww, wh, wpanes, wactive,
+             wlayout, wflags, wstyle_cur, wstyle) = fields[:12]
             session = state.sessions.get(sid)
             if session is None:
                 continue
+            # Use current-style for active window, normal style for others
+            style_str = wstyle_cur if wactive == "1" else wstyle
+            fg, bg = _parse_tmux_style(style_str)
             session.windows[wid] = TmuxWindow(
                 window_id=wid,
                 window_index=int(widx),
@@ -124,6 +178,9 @@ class TmuxManager(QObject):
                 layout=wlayout,
                 active=wactive == "1",
                 pane_count=int(wpanes),
+                flags=wflags.strip(),
+                style_fg=fg,
+                style_bg=bg,
             )
 
         # Parse panes — associate with windows via window_id in format
