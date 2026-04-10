@@ -2,15 +2,55 @@
 
 Supports direct scrollback: scrolling up fetches tmux history via a signal,
 and auto-scroll pauses while the user is browsing history.
+Accepts keyboard input and forwards it to tmux via send-keys.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QFont, QMouseEvent, QTextCharFormat, QTextCursor, QWheelEvent
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QKeyEvent,
+    QMouseEvent,
+    QTextCharFormat,
+    QTextCursor,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import QFrame, QScrollBar, QTextEdit, QVBoxLayout
 
 from src.core.ansi_parser import StyledSpan, parse_ansi
+
+# Map Qt keys to tmux send-keys key names
+_QT_TO_TMUX: dict[int, str] = {
+    Qt.Key.Key_Return: "Enter",
+    Qt.Key.Key_Enter: "Enter",
+    Qt.Key.Key_Backspace: "BSpace",
+    Qt.Key.Key_Tab: "Tab",
+    Qt.Key.Key_Escape: "Escape",
+    Qt.Key.Key_Up: "Up",
+    Qt.Key.Key_Down: "Down",
+    Qt.Key.Key_Left: "Left",
+    Qt.Key.Key_Right: "Right",
+    Qt.Key.Key_Home: "Home",
+    Qt.Key.Key_End: "End",
+    Qt.Key.Key_PageUp: "PageUp",
+    Qt.Key.Key_PageDown: "PageDown",
+    Qt.Key.Key_Insert: "Insert",
+    Qt.Key.Key_Delete: "DC",
+    Qt.Key.Key_F1: "F1",
+    Qt.Key.Key_F2: "F2",
+    Qt.Key.Key_F3: "F3",
+    Qt.Key.Key_F4: "F4",
+    Qt.Key.Key_F5: "F5",
+    Qt.Key.Key_F6: "F6",
+    Qt.Key.Key_F7: "F7",
+    Qt.Key.Key_F8: "F8",
+    Qt.Key.Key_F9: "F9",
+    Qt.Key.Key_F10: "F10",
+    Qt.Key.Key_F11: "F11",
+    Qt.Key.Key_F12: "F12",
+}
 
 
 class PaneWidget(QFrame):
@@ -19,10 +59,12 @@ class PaneWidget(QFrame):
     Signals:
         clicked(pane_id): user clicked on this pane
         history_requested(pane_id, line_count): user scrolled up, needs more history
+        keys_pressed(pane_id, keys): user typed something, forward to tmux
     """
 
     clicked = Signal(str)  # pane_id
     history_requested = Signal(str, int)  # pane_id, how many lines of history to fetch
+    keys_pressed = Signal(str, str)  # pane_id, tmux key string
 
     # How many lines of history to fetch per scroll-up request
     HISTORY_CHUNK = 200
@@ -45,6 +87,7 @@ class PaneWidget(QFrame):
 
         self.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Plain)
         self.setLineWidth(1)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 1, 1, 1)
@@ -56,6 +99,8 @@ class PaneWidget(QFrame):
         self._text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._text_edit.setFrameStyle(QFrame.Shape.NoFrame)
         self._text_edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        # Prevent the QTextEdit from stealing focus / key events
+        self._text_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         font = QFont(font_family, font_size)
         font.setStyleHint(QFont.StyleHint.Monospace)
@@ -84,16 +129,14 @@ class PaneWidget(QFrame):
         self._active = active
         color = "#4488ff" if active else "#555555"
         self.setStyleSheet(f"PaneWidget {{ border: 2px solid {color}; }}")
+        if active:
+            self.setFocus()
 
     def set_content(self, text: str) -> None:
-        """Render live pane content (may contain ANSI SGR sequences).
-
-        If the user is browsing history, live updates are suppressed —
-        the display stays on the history view until they scroll back to bottom.
-        """
+        """Render live pane content (may contain ANSI SGR sequences)."""
         self._last_content = text
         if self._browsing_history:
-            return  # don't overwrite history view with live content
+            return
         spans = parse_ansi(text)
         self._render_spans(spans, scroll_to_bottom=True)
 
@@ -101,7 +144,6 @@ class PaneWidget(QFrame):
         """Render scrollback history content fetched from tmux."""
         self._history_content = text
         spans = parse_ansi(text)
-        # Preserve approximate scroll position: remember distance from bottom
         sb = self._scrollbar
         was_at = sb.value()
         old_max = sb.maximum()
@@ -109,7 +151,6 @@ class PaneWidget(QFrame):
 
         self._render_spans(spans, scroll_to_bottom=False)
 
-        # Restore position relative to bottom (new content was prepended)
         new_max = sb.maximum()
         sb.setValue(max(0, new_max - dist_from_bottom))
 
@@ -153,17 +194,66 @@ class PaneWidget(QFrame):
         if scroll_to_bottom:
             self._text_edit.moveCursor(QTextCursor.MoveOperation.End)
 
+    # ---------- keyboard input forwarding ----------
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Convert key events to tmux send-keys strings and emit."""
+        if not self._active:
+            super().keyPressEvent(event)
+            return
+
+        key = event.key()
+        modifiers = event.modifiers()
+        tmux_key = self._translate_key(key, modifiers, event.text())
+
+        if tmux_key:
+            self.keys_pressed.emit(self.pane_id, tmux_key)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    @staticmethod
+    def _translate_key(key: int, modifiers: Qt.KeyboardModifier, text: str) -> str:
+        """Translate a Qt key event to a tmux send-keys argument."""
+        ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+        alt = bool(modifiers & Qt.KeyboardModifier.AltModifier)
+
+        # Special keys (arrows, function keys, etc.)
+        if key in _QT_TO_TMUX:
+            name = _QT_TO_TMUX[key]
+            if ctrl:
+                return f"C-{name}"
+            if alt:
+                return f"M-{name}"
+            return name
+
+        # Ctrl+letter -> C-a through C-z
+        if ctrl and Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
+            letter = chr(key).lower()
+            return f"C-{letter}"
+
+        # Alt+printable
+        if alt and text:
+            return f"M-{text}"
+
+        # Regular printable character
+        if text and not ctrl:
+            return text
+
+        return ""
+
+    # ---------- scroll / history ----------
+
     def _on_scroll_changed(self, value: int) -> None:
         """Detect when user scrolls to bottom to exit history browsing mode."""
         if not self._browsing_history:
             return
         sb = self._scrollbar
-        at_bottom = value >= sb.maximum() - 5  # small tolerance
+        at_bottom = value >= sb.maximum() - 5
         if at_bottom:
             self._browsing_history = False
             self._history_lines = 0
             self._history_content = ""
-            # Re-render live content now that we're back at bottom
             if self._last_content:
                 spans = parse_ansi(self._last_content)
                 self._render_spans(spans, scroll_to_bottom=True)
@@ -174,10 +264,9 @@ class PaneWidget(QFrame):
         scrolling_up = event.angleDelta().y() > 0
 
         if scrolling_up and sb.value() <= sb.minimum():
-            # Already at the top of current content — request more history
             if self._history_lines >= self.HISTORY_MAX:
                 event.accept()
-                return  # capped — don't request more
+                return
             self._browsing_history = True
             self._history_lines = min(
                 self._history_lines + self.HISTORY_CHUNK, self.HISTORY_MAX
@@ -187,11 +276,11 @@ class PaneWidget(QFrame):
             return
 
         if scrolling_up and not self._browsing_history:
-            # User is scrolling up within current content — enter browse mode
             self._browsing_history = True
 
         super().wheelEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         self.clicked.emit(self.pane_id)
+        self.setFocus()
         super().mousePressEvent(event)

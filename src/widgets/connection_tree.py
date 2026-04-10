@@ -1,9 +1,9 @@
-"""Left sidebar: server / session / window tree widget."""
+"""Left sidebar: server / session / window tree widget with context menus."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
+from PySide6.QtWidgets import QMenu, QTreeWidget, QTreeWidgetItem
 
 from src.core.tmux_state import TmuxState
 
@@ -18,12 +18,19 @@ class ConnectionTree(QTreeWidget):
 
     session_selected = Signal(str, str)  # host_name, session_name
     window_selected = Signal(str, str, int)  # host_name, session_name, window_index
+    # Context menu action signals
+    new_window_requested = Signal(str, str)  # host_name, session_name
+    close_window_requested = Signal(str, str, int)  # host_name, session_name, window_index
+    rename_window_requested = Signal(str, str, int)  # host_name, session_name, window_index
+    new_session_requested = Signal(str)  # host_name
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setHeaderLabel("Connections")
         self.setMinimumWidth(180)
         self.itemClicked.connect(self._on_item_clicked)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
 
     def set_state(self, host_name: str, state: TmuxState) -> None:
         """Rebuild tree for one host from tmux state."""
@@ -69,9 +76,47 @@ class ConnectionTree(QTreeWidget):
         window_index = item.data(0, ROLE_WINDOW)
 
         if host is None or session_name is None:
-            return  # clicked on a host node (no session selected)
+            return
 
         if window_index is not None:
             self.window_selected.emit(host, session_name, window_index)
         else:
             self.session_selected.emit(host, session_name)
+
+    def _on_context_menu(self, pos) -> None:
+        item = self.itemAt(pos)
+        if item is None:
+            return
+
+        host = item.data(0, ROLE_HOST)
+        session_name = item.data(0, ROLE_SESSION)
+        window_index = item.data(0, ROLE_WINDOW)
+
+        menu = QMenu(self)
+
+        if window_index is not None:
+            # Right-clicked on a window
+            act_rename = menu.addAction("Rename Window...")
+            act_close = menu.addAction("Close Window")
+
+            action = menu.exec(self.viewport().mapToGlobal(pos))
+            if action == act_rename:
+                self.rename_window_requested.emit(host, session_name, window_index)
+            elif action == act_close:
+                self.close_window_requested.emit(host, session_name, window_index)
+
+        elif session_name is not None:
+            # Right-clicked on a session
+            act_new_win = menu.addAction("New Window")
+
+            action = menu.exec(self.viewport().mapToGlobal(pos))
+            if action == act_new_win:
+                self.new_window_requested.emit(host, session_name)
+
+        elif host is not None:
+            # Right-clicked on a host
+            act_new_session = menu.addAction("New Session...")
+
+            action = menu.exec(self.viewport().mapToGlobal(pos))
+            if action == act_new_session:
+                self.new_session_requested.emit(host)

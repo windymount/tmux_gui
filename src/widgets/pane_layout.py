@@ -6,7 +6,7 @@ import logging
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QFontMetricsF, QResizeEvent
-from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QMenu, QSplitter, QVBoxLayout, QWidget
 
 from src.core.config import AppConfig
 from src.core.tmux_state import LayoutNode, TmuxWindow, parse_layout
@@ -31,6 +31,12 @@ class PaneLayoutWidget(QWidget):
         self.on_pane_resize: object | None = None  # callable(pane_id, width, height)
         self.on_history_requested: object | None = None  # callable(pane_id, line_count)
         self.on_window_resize: object | None = None  # callable(cols, rows)
+        self.on_keys_pressed: object | None = None  # callable(pane_id, keys)
+        # Context menu action callbacks
+        self.on_split_h: object | None = None  # callable(pane_id)
+        self.on_split_v: object | None = None  # callable(pane_id)
+        self.on_close_pane: object | None = None  # callable(pane_id)
+        self.on_zoom_pane: object | None = None  # callable(pane_id)
 
         # Measure monospace cell size for pixel-to-cell conversion
         font = QFont(config.font_family, config.font_size)
@@ -147,6 +153,11 @@ class PaneLayoutWidget(QWidget):
             )
             pw.clicked.connect(self._on_pane_clicked)
             pw.history_requested.connect(self._on_history_requested)
+            pw.keys_pressed.connect(self._on_keys_pressed)
+            pw.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            pw.customContextMenuRequested.connect(
+                lambda pos, pid=pane_id: self._show_pane_context_menu(pid, pw.mapToGlobal(pos))
+            )
             self._pane_widgets[pane_id] = pw
             return pw
 
@@ -181,6 +192,10 @@ class PaneLayoutWidget(QWidget):
     def _on_history_requested(self, pane_id: str, line_count: int) -> None:
         if self.on_history_requested:
             self.on_history_requested(pane_id, line_count)
+
+    def _on_keys_pressed(self, pane_id: str, keys: str) -> None:
+        if self.on_keys_pressed:
+            self.on_keys_pressed(pane_id, keys)
 
     def _set_active(self, pane_id: str) -> None:
         if self._active_pane_id == pane_id:
@@ -229,3 +244,23 @@ class PaneLayoutWidget(QWidget):
             new_w = max(1, round(widget.width() / total_qt_w * tmux_w))
             new_h = max(1, round(widget.height() / total_qt_h * tmux_h))
             self.on_pane_resize(pane_id, new_w, new_h)
+
+    def _show_pane_context_menu(self, pane_id: str, global_pos) -> None:
+        """Show right-click context menu for a pane."""
+        menu = QMenu(self)
+        act_split_h = menu.addAction("Split Horizontal")
+        act_split_v = menu.addAction("Split Vertical")
+        menu.addSeparator()
+        act_zoom = menu.addAction("Zoom Toggle")
+        menu.addSeparator()
+        act_close = menu.addAction("Close Pane")
+
+        action = menu.exec(global_pos)
+        if action == act_split_h and self.on_split_h:
+            self.on_split_h(pane_id)
+        elif action == act_split_v and self.on_split_v:
+            self.on_split_v(pane_id)
+        elif action == act_zoom and self.on_zoom_pane:
+            self.on_zoom_pane(pane_id)
+        elif action == act_close and self.on_close_pane:
+            self.on_close_pane(pane_id)

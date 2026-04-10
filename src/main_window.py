@@ -77,6 +77,9 @@ class MainWindow(QMainWindow):
         self._act_disconnect.triggered.connect(self._on_disconnect)
 
         file_menu.addSeparator()
+        act_settings = file_menu.addAction("&Settings...")
+        act_settings.triggered.connect(self._on_settings)
+        file_menu.addSeparator()
         act_quit = file_menu.addAction("&Quit")
         act_quit.setShortcut(QKeySequence("Ctrl+Q"))
         act_quit.triggered.connect(self.close)
@@ -182,6 +185,10 @@ class MainWindow(QMainWindow):
 
     def _build_status_bar(self) -> None:
         sb = self.statusBar()
+        # Connection status indicator (colored dot)
+        self._status_dot = QLabel("\u2b24")  # filled circle
+        self._status_dot.setStyleSheet("color: #cc0000; font-size: 12px;")
+        sb.addWidget(self._status_dot)
         self._status_conn = QLabel("Disconnected")
         self._status_session = QLabel("")
         self._status_panes = QLabel("")
@@ -196,10 +203,19 @@ class MainWindow(QMainWindow):
         self._tmux.state_changed.connect(self._on_tmux_state_changed)
         self._conn_tree.session_selected.connect(self._on_tree_session_selected)
         self._conn_tree.window_selected.connect(self._on_tree_window_selected)
+        self._conn_tree.new_window_requested.connect(self._on_tree_new_window)
+        self._conn_tree.close_window_requested.connect(self._on_tree_close_window)
+        self._conn_tree.rename_window_requested.connect(self._on_tree_rename_window)
+        self._conn_tree.new_session_requested.connect(self._on_tree_new_session)
         self._window_tabs.tab_selected.connect(self._on_tab_selected)
         self._pane_layout.on_pane_resize = self._on_pane_resized
         self._pane_layout.on_history_requested = self._on_pane_history_requested
         self._pane_layout.on_window_resize = self._on_window_resized
+        self._pane_layout.on_keys_pressed = self._on_keys_pressed
+        self._pane_layout.on_split_h = lambda pid: self._on_split_pane(pid, True)
+        self._pane_layout.on_split_v = lambda pid: self._on_split_pane(pid, False)
+        self._pane_layout.on_close_pane = self._on_close_pane_by_id
+        self._pane_layout.on_zoom_pane = self._on_zoom_pane_by_id
 
     # ---------- polling ----------
 
@@ -286,6 +302,17 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Connection Failed", str(exc))
         finally:
             self._async_busy = False
+
+    def _on_settings(self) -> None:
+        from src.widgets.settings_dialog import SettingsDialog
+
+        dlg = SettingsDialog(self._config, self)
+        if dlg.exec() == SettingsDialog.DialogCode.Accepted:
+            dlg.apply_to_config()
+            self._config.save()
+            # Apply new poll intervals to running timers
+            self._structure_timer.setInterval(self._config.poll.structure_interval_ms)
+            self._content_timer.setInterval(self._config.poll.active_pane_interval_ms)
 
     def _on_disconnect(self) -> None:
         if self._current_host:
@@ -405,6 +432,25 @@ class MainWindow(QMainWindow):
         finally:
             self._async_busy = False
 
+    def _on_split_pane(self, pane_id: str, horizontal: bool) -> None:
+        if self._current_host:
+            self._run_async(self._tmux.split_pane(self._current_host, pane_id, horizontal))
+
+    def _on_close_pane_by_id(self, pane_id: str) -> None:
+        if self._current_host:
+            reply = QMessageBox.question(self, "Close Pane", f"Close pane {pane_id}?")
+            if reply == QMessageBox.StandardButton.Yes:
+                self._run_async(self._tmux.kill_pane(self._current_host, pane_id))
+
+    def _on_zoom_pane_by_id(self, pane_id: str) -> None:
+        if self._current_host:
+            self._run_async(self._tmux.zoom_pane(self._current_host, pane_id))
+
+    def _on_keys_pressed(self, pane_id: str, keys: str) -> None:
+        """Forward keyboard input to tmux pane."""
+        if self._current_host and pane_id:
+            self._run_async(self._tmux.send_keys(self._current_host, pane_id, keys))
+
     def _on_history(self) -> None:
         pane_id = self._pane_layout.active_pane_id
         if self._current_host and pane_id:
@@ -429,11 +475,17 @@ class MainWindow(QMainWindow):
     # ---------- signal handlers ----------
 
     def _on_ssh_state_change(self, host_name: str, state: ConnState) -> None:
+        color_map = {
+            ConnState.DISCONNECTED: "#cc0000",  # red
+            ConnState.CONNECTING: "#cccc00",  # yellow
+            ConnState.CONNECTED: "#00cc00",  # green
+        }
         label = {
             ConnState.DISCONNECTED: "Disconnected",
             ConnState.CONNECTING: f"Connecting to {host_name}...",
             ConnState.CONNECTED: f"Connected: {host_name}",
         }[state]
+        self._status_dot.setStyleSheet(f"color: {color_map[state]}; font-size: 12px;")
         self._status_conn.setText(label)
 
     def _on_tmux_state_changed(self, host_name: str) -> None:
@@ -490,6 +542,39 @@ class MainWindow(QMainWindow):
                 self._tmux.select_window(host_name, session_name, window_index)
             )
         self._update_status_bar()
+
+    def _on_tree_new_window(self, host_name: str, session_name: str) -> None:
+        self._run_async(self._tmux.new_window(host_name, session_name))
+
+    def _on_tree_close_window(
+        self, host_name: str, session_name: str, window_index: int
+    ) -> None:
+        reply = QMessageBox.question(
+            self, "Close Window",
+            f"Close window {window_index} in session '{session_name}'?",
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._run_async(
+                self._tmux.kill_window(host_name, session_name, window_index)
+            )
+
+    def _on_tree_rename_window(
+        self, host_name: str, session_name: str, window_index: int
+    ) -> None:
+        from PySide6.QtWidgets import QInputDialog
+
+        name, ok = QInputDialog.getText(self, "Rename Window", "New name:")
+        if ok and name.strip():
+            self._run_async(
+                self._tmux.rename_window(host_name, session_name, window_index, name.strip())
+            )
+
+    def _on_tree_new_session(self, host_name: str) -> None:
+        from PySide6.QtWidgets import QInputDialog
+
+        name, ok = QInputDialog.getText(self, "New Session", "Session name:")
+        if ok and name.strip():
+            self._run_async(self._tmux.new_session(host_name, name.strip()))
 
     def _on_tab_selected(self, window_index: int) -> None:
         self._current_window_index = window_index
