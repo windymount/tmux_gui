@@ -46,8 +46,10 @@ class AppConfig:
 
     connections: list[ConnectionConfig] = field(default_factory=list)
     poll: PollConfig = field(default_factory=PollConfig)
-    font_family: str = "Consolas"
+    font_family: str = "Consolas"  # terminal/pane monospace font
     font_size: int = 10
+    ui_font_family: str = ""  # UI font (menus, tabs, tree); empty = system default
+    ui_font_size: int = 0  # UI font size; 0 = system default
     theme: str = "system"  # "system", "dark", "light"
 
     # --- persistence ---
@@ -108,6 +110,8 @@ class AppConfig:
                 poll=poll,
                 font_family=data.get("font_family", "Consolas"),
                 font_size=data.get("font_size", 10),
+                ui_font_family=data.get("ui_font_family", ""),
+                ui_font_size=data.get("ui_font_size", 0),
                 theme=data.get("theme", "system"),
             )
         except Exception:

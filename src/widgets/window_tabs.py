@@ -1,6 +1,7 @@
 """Window tab bar — one tab per tmux window in the active session.
 
 Tab colors reflect tmux window-status-style colors.
+Auto-adjusts text color for contrast against dark/light backgrounds.
 """
 
 from __future__ import annotations
@@ -10,6 +11,23 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QHBoxLayout, QTabBar, QWidget
 
 from src.core.tmux_state import TmuxWindow
+
+
+def _luminance(color: QColor) -> float:
+    """Compute relative luminance (0=black, 1=white) per WCAG formula."""
+    r, g, b = color.redF(), color.greenF(), color.blueF()
+
+    def linearize(c: float) -> float:
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b)
+
+
+def _contrast_text(bg_hex: str) -> str:
+    """Return '#ffffff' or '#000000' for best readability on *bg_hex*."""
+    if not bg_hex:
+        return ""
+    return "#ffffff" if _luminance(QColor(bg_hex)) < 0.4 else "#000000"
 
 
 class WindowTabBar(QWidget):
@@ -48,7 +66,7 @@ class WindowTabBar(QWidget):
         sorted_wins = sorted(windows.values(), key=lambda w: w.window_index)
         active_tab = 0
 
-        # Collect per-tab style info for stylesheet generation
+        # Collect per-tab style info
         tab_styles: list[tuple[str, str]] = []  # (fg, bg) per tab
 
         for i, win in enumerate(sorted_wins):
@@ -61,7 +79,6 @@ class WindowTabBar(QWidget):
             if win.active:
                 active_tab = i
 
-        # Apply colors: per-tab fg via API, bg via stylesheet
         self._apply_colors(tab_styles, active_tab)
 
         if self._tab_bar.count() > 0:
@@ -73,18 +90,31 @@ class WindowTabBar(QWidget):
     def _apply_colors(
         self, tab_styles: list[tuple[str, str]], active_tab: int
     ) -> None:
-        """Apply tmux colors to tabs."""
-        # Set per-tab text color
-        for i, (fg, _bg) in enumerate(tab_styles):
+        """Apply tmux colors to tabs with auto-contrast for readability."""
+        for i, (fg, bg) in enumerate(tab_styles):
+            # Determine text color: use tmux fg if set, otherwise auto-contrast
             if fg:
                 self._tab_bar.setTabTextColor(i, QColor(fg))
+            elif bg:
+                # No explicit fg — pick white or black based on bg luminance
+                auto_fg = _contrast_text(bg)
+                if auto_fg:
+                    self._tab_bar.setTabTextColor(i, QColor(auto_fg))
 
-        # Build stylesheet for active tab background color
+        # Build stylesheet for tab backgrounds
+        style_parts: list[str] = []
+
+        # Active tab background
         active_bg = tab_styles[active_tab][1] if active_tab < len(tab_styles) else ""
         if active_bg:
-            self._tab_bar.setStyleSheet(
-                f"QTabBar::tab:selected {{ background-color: {active_bg}; }}"
+            active_fg = tab_styles[active_tab][0] or _contrast_text(active_bg)
+            fg_rule = f" color: {active_fg};" if active_fg else ""
+            style_parts.append(
+                f"QTabBar::tab:selected {{ background-color: {active_bg};{fg_rule} }}"
             )
+
+        if style_parts:
+            self._tab_bar.setStyleSheet("\n".join(style_parts))
         else:
             self._tab_bar.setStyleSheet("")
 

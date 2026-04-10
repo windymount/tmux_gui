@@ -60,6 +60,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("TmuxPilot")
         self.resize(1100, 700)
         self.setMinimumSize(800, 500)
+        self._apply_ui_font()
 
     # ---------- menus ----------
 
@@ -319,6 +320,17 @@ class MainWindow(QMainWindow):
         finally:
             self._async_busy = False
 
+    def _apply_ui_font(self) -> None:
+        """Apply UI font from config to the entire application."""
+        from PySide6.QtGui import QFont
+
+        if self._config.ui_font_family:
+            font = QFont(self._config.ui_font_family, self._config.ui_font_size or 9)
+            QApplication.instance().setFont(font)
+        else:
+            # Reset to system default
+            QApplication.instance().setFont(QApplication.instance().font())
+
     def _change_font_size(self, delta: int) -> None:
         """Increase or decrease font size by *delta* points."""
         new_size = max(6, min(32, self._config.font_size + delta))
@@ -341,6 +353,9 @@ class MainWindow(QMainWindow):
             # Apply new poll intervals to running timers
             self._structure_timer.setInterval(self._config.poll.structure_interval_ms)
             self._content_timer.setInterval(self._config.poll.active_pane_interval_ms)
+            # Apply font changes
+            self._pane_layout.update_font_size(self._config.font_size)
+            self._apply_ui_font()
 
     def _on_disconnect(self) -> None:
         if self._current_host:
