@@ -132,6 +132,12 @@ class PaneWidget(QFrame):
         if active:
             self.setFocus()
 
+    def set_font_size(self, size: int) -> None:
+        """Update the font size live."""
+        font = self._text_edit.font()
+        font.setPointSize(size)
+        self._text_edit.setFont(font)
+
     def set_content(self, text: str) -> None:
         """Render live pane content (may contain ANSI SGR sequences)."""
         self._last_content = text

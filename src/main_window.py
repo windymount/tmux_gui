@@ -132,6 +132,20 @@ class MainWindow(QMainWindow):
         self._act_history.setEnabled(False)
         self._act_history.triggered.connect(self._on_history)
 
+        # View menu — font size
+        view_menu = mb.addMenu("&View")
+        act_zoom_in = view_menu.addAction("Zoom &In")
+        act_zoom_in.setShortcut(QKeySequence("Ctrl+="))
+        act_zoom_in.triggered.connect(lambda: self._change_font_size(1))
+
+        act_zoom_out = view_menu.addAction("Zoom &Out")
+        act_zoom_out.setShortcut(QKeySequence("Ctrl+-"))
+        act_zoom_out.triggered.connect(lambda: self._change_font_size(-1))
+
+        act_zoom_reset = view_menu.addAction("&Reset Zoom")
+        act_zoom_reset.setShortcut(QKeySequence("Ctrl+0"))
+        act_zoom_reset.triggered.connect(lambda: self._set_font_size(10))
+
     # ---------- toolbar ----------
 
     def _build_toolbar(self) -> None:
@@ -304,6 +318,18 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Connection Failed", str(exc))
         finally:
             self._async_busy = False
+
+    def _change_font_size(self, delta: int) -> None:
+        """Increase or decrease font size by *delta* points."""
+        new_size = max(6, min(32, self._config.font_size + delta))
+        self._set_font_size(new_size)
+
+    def _set_font_size(self, size: int) -> None:
+        """Set font size to an absolute value and apply live."""
+        self._config.font_size = size
+        self._pane_layout.update_font_size(size)
+        self._config.save()
+        self.statusBar().showMessage(f"Font size: {size}pt", 2000)
 
     def _on_settings(self) -> None:
         from src.widgets.settings_dialog import SettingsDialog

@@ -97,6 +97,20 @@ class PaneLayoutWidget(QWidget):
         self._current_window = None
         self._current_layout = ""
 
+    def update_font_size(self, size: int) -> None:
+        """Update font size on all pane widgets and recalculate cell dimensions."""
+        self._config.font_size = size
+        font = QFont(self._config.font_family, size)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        fm = QFontMetricsF(font)
+        self._cell_width = fm.averageCharWidth()
+        self._cell_height = fm.height()
+        for pw in self._pane_widgets.values():
+            pw.set_font_size(size)
+        # Recalculate tmux window size with new cell dimensions
+        if self._current_window and self.on_window_resize:
+            self._resize_timer.start()
+
     def update_pane_content(self, pane_id: str, content: str) -> None:
         """Update the displayed content for one pane."""
         widget = self._pane_widgets.get(pane_id)
