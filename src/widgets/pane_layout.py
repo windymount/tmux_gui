@@ -23,6 +23,11 @@ class PaneLayoutWidget(QWidget):
         self._pane_widgets: dict[str, PaneWidget] = {}  # pane_id -> widget
         self._active_pane_id: str | None = None
         self._current_window: TmuxWindow | None = None
+        self._current_layout: str = ""  # track layout string to avoid needless rebuilds
+        self._splitters: list[QSplitter] = []  # all splitters for signal tracking
+
+        # Callback set by MainWindow for resize-pane commands
+        self.on_pane_resize: object | None = None  # callable(pane_id, width, height)
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -33,12 +38,44 @@ class PaneLayoutWidget(QWidget):
         return self._active_pane_id
 
     def set_window(self, window: TmuxWindow) -> None:
-        """Rebuild the pane layout from a TmuxWindow's layout string."""
+        """Update the pane layout from a TmuxWindow.
+
+        Only rebuilds widgets if the layout string actually changed.
+        If only pane content/state changed, just updates the active indicator.
+        """
         self._current_window = window
-        self._clear_layout()
 
         if not window.layout:
+            self._clear_layout()
+            self._current_layout = ""
             return
+
+        # Only rebuild if the layout structure actually changed
+        if window.layout != self._current_layout:
+            self._rebuild(window)
+            self._current_layout = window.layout
+
+        # Always update active pane indicator
+        for pane in window.panes.values():
+            if pane.active:
+                self._set_active(pane.pane_id)
+                break
+
+    def clear(self) -> None:
+        self._clear_layout()
+        self._active_pane_id = None
+        self._current_window = None
+        self._current_layout = ""
+
+    def update_pane_content(self, pane_id: str, content: str) -> None:
+        """Update the displayed content for one pane."""
+        widget = self._pane_widgets.get(pane_id)
+        if widget:
+            widget.set_content(content)
+
+    def _rebuild(self, window: TmuxWindow) -> None:
+        """Full rebuild of the splitter tree from a layout string."""
+        self._clear_layout()
 
         try:
             tree = parse_layout(window.layout)
@@ -46,11 +83,9 @@ class PaneLayoutWidget(QWidget):
             logger.warning("Failed to parse layout: %s", window.layout, exc_info=True)
             return
 
-        # Collect pane_ids from window data for mapping layout nodes
-        # Layout nodes have integer pane IDs; TmuxPane IDs are like "%17"
+        # Map layout node integer IDs -> tmux pane_id strings like "%17"
         pane_id_map: dict[int, str] = {}
         for pane in window.panes.values():
-            # Extract numeric part from pane_id like "%17"
             try:
                 num = int(pane.pane_id.lstrip("%"))
                 pane_id_map[num] = pane.pane_id
@@ -61,25 +96,9 @@ class PaneLayoutWidget(QWidget):
         self._root_widget = root
         self._layout.addWidget(root)
 
-        # Set active pane
-        for pane in window.panes.values():
-            if pane.active:
-                self._set_active(pane.pane_id)
-                break
-
-    def clear(self) -> None:
-        self._clear_layout()
-        self._active_pane_id = None
-        self._current_window = None
-
-    def update_pane_content(self, pane_id: str, content: str) -> None:
-        """Update the displayed content for one pane."""
-        widget = self._pane_widgets.get(pane_id)
-        if widget:
-            widget.set_content(content)
-
     def _clear_layout(self) -> None:
         self._pane_widgets.clear()
+        self._splitters.clear()
         if self._root_widget:
             self._layout.removeWidget(self._root_widget)
             self._root_widget.deleteLater()
@@ -119,12 +138,18 @@ class PaneLayoutWidget(QWidget):
             sizes = [c.height for c in node.children]
         splitter.setSizes(sizes)
 
+        # Track splitter for resize handling
+        splitter.splitterMoved.connect(self._on_splitter_moved)
+        self._splitters.append(splitter)
+
         return splitter
 
     def _on_pane_clicked(self, pane_id: str) -> None:
         self._set_active(pane_id)
 
     def _set_active(self, pane_id: str) -> None:
+        if self._active_pane_id == pane_id:
+            return
         # Deactivate previous
         if self._active_pane_id and self._active_pane_id in self._pane_widgets:
             self._pane_widgets[self._active_pane_id].set_active(False)
@@ -132,3 +157,28 @@ class PaneLayoutWidget(QWidget):
         self._active_pane_id = pane_id
         if pane_id in self._pane_widgets:
             self._pane_widgets[pane_id].set_active(True)
+
+    def _on_splitter_moved(self, pos: int, index: int) -> None:
+        """When user drags a splitter, sync the new sizes back to tmux."""
+        if not self._current_window or not self.on_pane_resize:
+            return
+
+        # Collect current pixel sizes of all pane widgets and translate
+        # to proportional tmux cell sizes
+        window = self._current_window
+        if not window.panes:
+            return
+
+        # Calculate the ratio between Qt pixels and tmux cells
+        total_qt_w = self.width() if self.width() > 0 else 1
+        total_qt_h = self.height() if self.height() > 0 else 1
+        tmux_w = window.width if window.width > 0 else 80
+        tmux_h = window.height if window.height > 0 else 24
+
+        for pane_id, widget in self._pane_widgets.items():
+            qt_w = widget.width()
+            qt_h = widget.height()
+            # Convert Qt pixel size to tmux cell count
+            new_w = max(1, round(qt_w / total_qt_w * tmux_w))
+            new_h = max(1, round(qt_h / total_qt_h * tmux_h))
+            self.on_pane_resize(pane_id, new_w, new_h)

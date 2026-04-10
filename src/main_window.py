@@ -42,6 +42,7 @@ class MainWindow(QMainWindow):
         self._current_host: str | None = None
         self._current_session: str | None = None  # session name
         self._current_window_index: int | None = None
+        self._shutting_down = False
 
         self._setup_window()
         self._build_menus()
@@ -194,6 +195,7 @@ class MainWindow(QMainWindow):
         self._conn_tree.session_selected.connect(self._on_tree_session_selected)
         self._conn_tree.window_selected.connect(self._on_tree_window_selected)
         self._window_tabs.tab_selected.connect(self._on_tab_selected)
+        self._pane_layout.on_pane_resize = self._on_pane_resized
 
     # ---------- polling ----------
 
@@ -349,6 +351,12 @@ class MainWindow(QMainWindow):
         if self._current_host and pane_id:
             self._run_async(self._tmux.zoom_pane(self._current_host, pane_id))
 
+    def _on_pane_resized(self, pane_id: str, width: int, height: int) -> None:
+        if self._current_host:
+            self._run_async(
+                self._tmux.resize_pane(self._current_host, pane_id, width, height)
+            )
+
     def _on_history(self) -> None:
         pane_id = self._pane_layout.active_pane_id
         if self._current_host and pane_id:
@@ -495,6 +503,10 @@ class MainWindow(QMainWindow):
         self._status_panes.setText(pane_text)
 
     def closeEvent(self, event) -> None:
+        if self._shutting_down:
+            event.accept()
+            return
+        self._shutting_down = True
         self._structure_timer.stop()
         self._content_timer.stop()
         self._config.save()
