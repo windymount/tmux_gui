@@ -256,7 +256,8 @@ class TmuxManager(QObject):
     async def new_window(
         self, host_name: str, session_name: str, window_name: str = ""
     ) -> None:
-        args = ["new-window", "-t", session_name]
+        # Trailing colon means "in this session, append at end"
+        args = ["new-window", "-t", f"{session_name}:"]
         if window_name:
             args.extend(["-n", window_name])
         await self._ssh.exec(host_name, _tmux_cmd(*args))

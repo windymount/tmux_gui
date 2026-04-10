@@ -2,13 +2,14 @@
 
 Tab colors reflect tmux window-status-style colors.
 Auto-adjusts text color for contrast against dark/light backgrounds.
+Includes a + button to create new windows.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QHBoxLayout, QTabBar, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QTabBar, QWidget
 
 from src.core.tmux_state import TmuxWindow
 
@@ -34,15 +35,19 @@ class WindowTabBar(QWidget):
     """Horizontal tab bar for switching between tmux windows.
 
     Each tab has a close button and colors matching the tmux status bar.
+    A + button at the end creates new windows.
     """
 
     tab_selected = Signal(int)  # window_index
     tab_close_requested = Signal(int)  # window_index
+    new_window_requested = Signal()  # + button clicked
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
         self._tab_bar = QTabBar()
         self._tab_bar.setExpanding(False)
         self._tab_bar.setTabsClosable(True)
@@ -50,6 +55,19 @@ class WindowTabBar(QWidget):
         self._tab_bar.currentChanged.connect(self._on_current_changed)
         self._tab_bar.tabCloseRequested.connect(self._on_tab_close)
         layout.addWidget(self._tab_bar)
+
+        # "+" button for new window
+        self._add_btn = QPushButton("+")
+        self._add_btn.setFixedSize(28, 28)
+        self._add_btn.setToolTip("New Window (Ctrl+T)")
+        self._add_btn.setStyleSheet(
+            "QPushButton { font-weight: bold; font-size: 16px; border: none; }"
+            "QPushButton:hover { background-color: #444444; color: white; border-radius: 4px; }"
+        )
+        self._add_btn.clicked.connect(self.new_window_requested.emit)
+        layout.addWidget(self._add_btn)
+
+        layout.addStretch()  # push everything left
 
         self._index_map: list[int] = []  # tab position -> window_index
         self._updating = False
@@ -66,8 +84,7 @@ class WindowTabBar(QWidget):
         sorted_wins = sorted(windows.values(), key=lambda w: w.window_index)
         active_tab = 0
 
-        # Collect per-tab style info
-        tab_styles: list[tuple[str, str]] = []  # (fg, bg) per tab
+        tab_styles: list[tuple[str, str]] = []
 
         for i, win in enumerate(sorted_wins):
             flags = f" {win.flags}" if win.flags else ""
@@ -92,19 +109,14 @@ class WindowTabBar(QWidget):
     ) -> None:
         """Apply tmux colors to tabs with auto-contrast for readability."""
         for i, (fg, bg) in enumerate(tab_styles):
-            # Determine text color: use tmux fg if set, otherwise auto-contrast
             if fg:
                 self._tab_bar.setTabTextColor(i, QColor(fg))
             elif bg:
-                # No explicit fg — pick white or black based on bg luminance
                 auto_fg = _contrast_text(bg)
                 if auto_fg:
                     self._tab_bar.setTabTextColor(i, QColor(auto_fg))
 
-        # Build stylesheet for tab backgrounds
         style_parts: list[str] = []
-
-        # Active tab background
         active_bg = tab_styles[active_tab][1] if active_tab < len(tab_styles) else ""
         if active_bg:
             active_fg = tab_styles[active_tab][0] or _contrast_text(active_bg)

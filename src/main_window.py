@@ -224,6 +224,7 @@ class MainWindow(QMainWindow):
         self._conn_tree.new_session_requested.connect(self._on_tree_new_session)
         self._window_tabs.tab_selected.connect(self._on_tab_selected)
         self._window_tabs.tab_close_requested.connect(self._on_tab_close_requested)
+        self._window_tabs.new_window_requested.connect(self._on_new_window)
         self._pane_layout.on_pane_resize = self._on_pane_resized
         self._pane_layout.on_history_requested = self._on_pane_history_requested
         self._pane_layout.on_window_resize = self._on_window_resized
@@ -389,9 +390,12 @@ class MainWindow(QMainWindow):
 
     def _on_new_window(self) -> None:
         if self._current_host and self._current_session:
-            self._run_async(
-                self._tmux.new_window(self._current_host, self._current_session)
-            )
+            self._run_async(self._do_new_window())
+
+    async def _do_new_window(self) -> None:
+        """Create a new window and immediately refresh to show it."""
+        await self._tmux.new_window(self._current_host, self._current_session)
+        await self._tmux.refresh_structure(self._current_host)
 
     def _on_close_window(self) -> None:
         has_target = (
@@ -612,7 +616,11 @@ class MainWindow(QMainWindow):
         self._sync_tmux_window_size()
 
     def _on_tree_new_window(self, host_name: str, session_name: str) -> None:
-        self._run_async(self._tmux.new_window(host_name, session_name))
+        async def _create() -> None:
+            await self._tmux.new_window(host_name, session_name)
+            await self._tmux.refresh_structure(host_name)
+
+        self._run_async(_create())
 
     def _on_tree_close_window(
         self, host_name: str, session_name: str, window_index: int
