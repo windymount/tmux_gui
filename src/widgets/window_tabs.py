@@ -3,25 +3,29 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QTabBar, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QTabBar, QWidget
 
 from src.core.tmux_state import TmuxWindow
 
 
 class WindowTabBar(QWidget):
-    """Horizontal tab bar for switching between tmux windows."""
+    """Horizontal tab bar for switching between tmux windows.
+
+    Each tab has a close button (like browser tabs).
+    """
 
     tab_selected = Signal(int)  # window_index
+    tab_close_requested = Signal(int)  # window_index
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        from PySide6.QtWidgets import QHBoxLayout
-
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self._tab_bar = QTabBar()
         self._tab_bar.setExpanding(False)
+        self._tab_bar.setTabsClosable(True)
         self._tab_bar.currentChanged.connect(self._on_current_changed)
+        self._tab_bar.tabCloseRequested.connect(self._on_tab_close)
         layout.addWidget(self._tab_bar)
 
         self._index_map: list[int] = []  # tab position -> window_index
@@ -32,7 +36,6 @@ class WindowTabBar(QWidget):
         self._updating = True
         self._tab_bar.blockSignals(True)
 
-        # Clear existing
         while self._tab_bar.count():
             self._tab_bar.removeTab(0)
         self._index_map.clear()
@@ -72,3 +75,7 @@ class WindowTabBar(QWidget):
         if self._updating or tab_pos < 0 or tab_pos >= len(self._index_map):
             return
         self.tab_selected.emit(self._index_map[tab_pos])
+
+    def _on_tab_close(self, tab_pos: int) -> None:
+        if 0 <= tab_pos < len(self._index_map):
+            self.tab_close_requested.emit(self._index_map[tab_pos])

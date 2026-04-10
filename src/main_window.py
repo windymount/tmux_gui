@@ -208,6 +208,7 @@ class MainWindow(QMainWindow):
         self._conn_tree.rename_window_requested.connect(self._on_tree_rename_window)
         self._conn_tree.new_session_requested.connect(self._on_tree_new_session)
         self._window_tabs.tab_selected.connect(self._on_tab_selected)
+        self._window_tabs.tab_close_requested.connect(self._on_tab_close_requested)
         self._pane_layout.on_pane_resize = self._on_pane_resized
         self._pane_layout.on_history_requested = self._on_pane_history_requested
         self._pane_layout.on_window_resize = self._on_window_resized
@@ -601,6 +602,21 @@ class MainWindow(QMainWindow):
                             break
         self._update_status_bar()
         self._sync_tmux_window_size()
+
+    def _on_tab_close_requested(self, window_index: int) -> None:
+        """Close a tmux window when its tab close button is clicked."""
+        if not (self._current_host and self._current_session):
+            return
+        reply = QMessageBox.question(
+            self, "Close Window",
+            f"Close window {window_index} in session '{self._current_session}'?",
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._run_async(
+                self._tmux.kill_window(
+                    self._current_host, self._current_session, window_index
+                )
+            )
 
     # ---------- helpers ----------
 
