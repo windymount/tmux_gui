@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
         self._current_window_index: int | None = None
         self._shutting_down = False
         self._pending_tasks: set[asyncio.Task] = set()
+        self._async_busy = False  # guard against qasync task reentrancy
 
         self._setup_window()
         self._build_menus()
@@ -212,22 +213,34 @@ class MainWindow(QMainWindow):
         self._content_timer.timeout.connect(self._poll_content)
 
     def _poll_structure(self) -> None:
-        if self._current_host:
-            self._run_async(self._tmux.refresh_structure(self._current_host))
+        if self._current_host and not self._async_busy:
+            self._run_async(self._guarded_refresh_structure())
 
     def _poll_content(self) -> None:
-        if self._current_host and self._pane_layout.active_pane_id:
-            self._run_async(self._refresh_pane_content())
+        if self._current_host and self._pane_layout.active_pane_id and not self._async_busy:
+            self._run_async(self._guarded_refresh_content())
 
-    async def _refresh_pane_content(self) -> None:
-        pane_id = self._pane_layout.active_pane_id
-        if not pane_id or not self._current_host:
+    async def _guarded_refresh_structure(self) -> None:
+        if self._async_busy:
             return
+        self._async_busy = True
+        try:
+            await self._tmux.refresh_structure(self._current_host)
+        finally:
+            self._async_busy = False
+
+    async def _guarded_refresh_content(self) -> None:
+        pane_id = self._pane_layout.active_pane_id
+        if not pane_id or not self._current_host or self._async_busy:
+            return
+        self._async_busy = True
         try:
             content = await self._tmux.capture_pane(self._current_host, pane_id)
             self._pane_layout.update_pane_content(pane_id, content)
         except Exception:
             logger.debug("Failed to capture pane %s", pane_id, exc_info=True)
+        finally:
+            self._async_busy = False
 
     # ---------- action handlers ----------
 
@@ -246,6 +259,7 @@ class MainWindow(QMainWindow):
         self._run_async(self._do_connect(conn_cfg, password))
 
     async def _do_connect(self, conn_cfg: ConnectionConfig, password: str) -> None:
+        self._async_busy = True
         try:
             await self._ssh_pool.connect(conn_cfg, password)
             self._current_host = conn_cfg.name
@@ -270,6 +284,8 @@ class MainWindow(QMainWindow):
             self._update_status_bar()
         except Exception as exc:
             QMessageBox.critical(self, "Connection Failed", str(exc))
+        finally:
+            self._async_busy = False
 
     def _on_disconnect(self) -> None:
         if self._current_host:
@@ -376,6 +392,9 @@ class MainWindow(QMainWindow):
             self._run_async(self._fetch_pane_history(pane_id, line_count))
 
     async def _fetch_pane_history(self, pane_id: str, line_count: int) -> None:
+        if self._async_busy:
+            return
+        self._async_busy = True
         try:
             content = await self._tmux.capture_pane_lines(
                 self._current_host, pane_id, line_count
@@ -383,6 +402,8 @@ class MainWindow(QMainWindow):
             self._pane_layout.update_pane_history(pane_id, content)
         except Exception:
             logger.debug("Failed to fetch history for %s", pane_id, exc_info=True)
+        finally:
+            self._async_busy = False
 
     def _on_history(self) -> None:
         pane_id = self._pane_layout.active_pane_id
@@ -390,6 +411,9 @@ class MainWindow(QMainWindow):
             self._run_async(self._show_history(pane_id))
 
     async def _show_history(self, pane_id: str) -> None:
+        if self._async_busy:
+            return
+        self._async_busy = True
         try:
             content = await self._tmux.capture_pane(
                 self._current_host, pane_id, history=True
@@ -399,6 +423,8 @@ class MainWindow(QMainWindow):
             dlg.exec()
         except Exception as exc:
             QMessageBox.warning(self, "History Error", str(exc))
+        finally:
+            self._async_busy = False
 
     # ---------- signal handlers ----------
 
