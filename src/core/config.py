@@ -120,3 +120,95 @@ class AppConfig:
             if c.name == name:
                 return c
         return None
+
+    def import_ssh_config(self, path: Path | None = None) -> list[ConnectionConfig]:
+        """Parse ~/.ssh/config and return new ConnectionConfig entries.
+
+        Only imports hosts not already present in self.connections.
+        Skips wildcard patterns (Host *) and hosts without a HostName.
+        """
+        if path is None:
+            path = Path.home() / ".ssh" / "config"
+        if not path.exists():
+            logger.info("No SSH config at %s", path)
+            return []
+
+        imported: list[ConnectionConfig] = []
+        existing_names = {c.name for c in self.connections}
+
+        for host in parse_ssh_config(path):
+            if host.name in existing_names:
+                continue
+            self.connections.append(host)
+            imported.append(host)
+            existing_names.add(host.name)
+
+        if imported:
+            logger.info("Imported %d hosts from %s", len(imported), path)
+        return imported
+
+
+def parse_ssh_config(path: Path) -> list[ConnectionConfig]:
+    """Parse an OpenSSH config file into ConnectionConfig entries.
+
+    Handles: Host, HostName, Port, User, IdentityFile.
+    Skips wildcard hosts (containing * or ?) and hosts with no HostName.
+    Expands ~ in IdentityFile paths.
+    """
+    hosts: list[ConnectionConfig] = []
+    current: dict[str, str] = {}
+
+    def _flush() -> None:
+        alias = current.get("host", "")
+        hostname = current.get("hostname", "")
+        if not alias or not hostname:
+            return
+        # Skip wildcard patterns
+        if "*" in alias or "?" in alias:
+            return
+        port = 22
+        if "port" in current:
+            try:
+                port = int(current["port"])
+            except ValueError:
+                pass
+        key_file = current.get("identityfile", "")
+        if key_file:
+            key_file = str(Path(key_file).expanduser())
+        hosts.append(ConnectionConfig(
+            name=alias,
+            host=hostname,
+            port=port,
+            username=current.get("user", ""),
+            key_file=key_file,
+        ))
+
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        logger.warning("Could not read SSH config %s", path)
+        return []
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        # SSH config format: "Keyword value" or "Keyword=value"
+        if "=" in line:
+            key, _, value = line.partition("=")
+        else:
+            key, _, value = line.partition(" ")
+        key = key.strip().lower()
+        value = value.strip()
+
+        if key == "host":
+            _flush()
+            current = {"host": value}
+        elif current:
+            # Only store first occurrence of each key per host block
+            if key not in current:
+                current[key] = value
+
+    _flush()
+    return hosts

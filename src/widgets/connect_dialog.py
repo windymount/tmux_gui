@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -16,17 +17,21 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.core.config import ConnectionConfig
+from src.core.config import ConnectionConfig, parse_ssh_config
 
 
 class ConnectDialog(QDialog):
-    """Modal dialog for entering SSH connection details."""
+    """Modal dialog for entering SSH connection details.
+
+    If ~/.ssh/config exists, its hosts appear in a dropdown for quick selection.
+    """
 
     def __init__(self, parent=None, config: ConnectionConfig | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Connect to Server")
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(450)
 
+        self._ssh_hosts = self._load_ssh_hosts()
         self._build_ui()
 
         if config:
@@ -36,6 +41,18 @@ class ConnectDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+
+        # SSH config import row
+        if self._ssh_hosts:
+            import_row = QHBoxLayout()
+            self._ssh_combo = QComboBox()
+            self._ssh_combo.addItem("-- Select from SSH config --")
+            for host in self._ssh_hosts:
+                label = host.display_label
+                self._ssh_combo.addItem(label)
+            self._ssh_combo.currentIndexChanged.connect(self._on_ssh_host_selected)
+            import_row.addWidget(self._ssh_combo, stretch=1)
+            layout.addLayout(import_row)
 
         form = QFormLayout()
 
@@ -90,6 +107,17 @@ class ConnectDialog(QDialog):
 
     # ---------- slots ----------
 
+    def _on_ssh_host_selected(self, index: int) -> None:
+        """Fill form fields from the selected SSH config host."""
+        if index <= 0:  # "-- Select --" placeholder
+            return
+        host = self._ssh_hosts[index - 1]
+        self._name_edit.setText(host.name)
+        self._host_edit.setText(host.host)
+        self._port_spin.setValue(host.port)
+        self._user_edit.setText(host.username)
+        self._key_edit.setText(host.key_file)
+
     def _browse_key(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -122,3 +150,13 @@ class ConnectDialog(QDialog):
 
     def get_password(self) -> str:
         return self._password_edit.text()
+
+    # ---------- internal ----------
+
+    @staticmethod
+    def _load_ssh_hosts() -> list[ConnectionConfig]:
+        """Parse ~/.ssh/config at dialog open time."""
+        try:
+            return parse_ssh_config(Path.home() / ".ssh" / "config")
+        except Exception:
+            return []
