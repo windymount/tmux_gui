@@ -31,6 +31,7 @@ WINDOW_FMT = SEP.join([
     "#{window_width}", "#{window_height}", "#{window_panes}",
     "#{window_active}", "#{window_layout}", "#{window_flags}",
     "#{window-status-current-style}", "#{window-status-style}",
+    "#{window-status-activity-style}", "#{window-status-bell-style}",
 ])
 # Include window_id in pane format so we can associate without extra queries
 PANE_FMT = SEP.join([
@@ -165,15 +166,28 @@ class TmuxManager(QObject):
         # Parse windows — associate with sessions via session_id in format
         for line in windows_raw.splitlines():
             fields = line.split(SEP)
-            if len(fields) < 12:
+            if len(fields) < 14:
                 continue
             (sid, wid, widx, wname, ww, wh, wpanes, wactive,
-             wlayout, wflags, wstyle_cur, wstyle) = fields[:12]
+             wlayout, wflags, wstyle_cur, wstyle,
+             wstyle_activity, wstyle_bell) = fields[:14]
             session = state.sessions.get(sid)
             if session is None:
                 continue
-            # Use current-style for active window, normal style for others
-            style_str = wstyle_cur if wactive == "1" else wstyle
+            # Pick the right style based on window state:
+            # - active window: current-style
+            # - bell (#! flag): bell-style (typically red)
+            # - activity (## flag): activity-style
+            # - otherwise: normal style
+            flags_clean = wflags.strip()
+            if wactive == "1":
+                style_str = wstyle_cur
+            elif "!" in flags_clean and wstyle_bell:
+                style_str = wstyle_bell
+            elif "#" in flags_clean and wstyle_activity:
+                style_str = wstyle_activity
+            else:
+                style_str = wstyle
             fg, bg = _parse_tmux_style(style_str)
             session.windows[wid] = TmuxWindow(
                 window_id=wid,
