@@ -208,6 +208,15 @@ class PaneWidget(QFrame):
             super().keyPressEvent(event)
             return
 
+        # While browsing history, any key exits history mode first
+        if self._browsing_history:
+            self._exit_history_mode()
+            # If it was Enter or Escape, just return to live — don't send the key
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Escape):
+                event.accept()
+                return
+            # Other keys: fall through to send to tmux after exiting history
+
         key = event.key()
         modifiers = event.modifiers()
         tmux_key = self._translate_key(key, modifiers, event.text())
@@ -250,6 +259,15 @@ class PaneWidget(QFrame):
 
     # ---------- scroll / history ----------
 
+    def _exit_history_mode(self) -> None:
+        """Leave history browsing: restore live content and scroll to bottom."""
+        self._browsing_history = False
+        self._history_lines = 0
+        self._history_content = ""
+        if self._last_content:
+            spans = parse_ansi(self._last_content)
+            self._render_spans(spans, scroll_to_bottom=True)
+
     def _on_scroll_changed(self, value: int) -> None:
         """Detect when user scrolls to bottom to exit history browsing mode."""
         if not self._browsing_history:
@@ -257,12 +275,7 @@ class PaneWidget(QFrame):
         sb = self._scrollbar
         at_bottom = value >= sb.maximum() - 5
         if at_bottom:
-            self._browsing_history = False
-            self._history_lines = 0
-            self._history_content = ""
-            if self._last_content:
-                spans = parse_ansi(self._last_content)
-                self._render_spans(spans, scroll_to_bottom=True)
+            self._exit_history_mode()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Intercept scroll-up to request history from tmux."""
