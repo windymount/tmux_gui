@@ -121,7 +121,7 @@ class SSHPool:
         for attempt in range(2):
             conn = await self._ensure_connected(hc)
             try:
-                result = await conn.run(cmd, check=True)
+                result = await conn.run(cmd)
                 return result.stdout or ""
             except (asyncssh.ConnectionLost, asyncssh.DisconnectError, OSError) as exc:
                 logger.warning(

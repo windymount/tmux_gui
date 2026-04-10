@@ -246,9 +246,23 @@ class MainWindow(QMainWindow):
             self._current_host = conn_cfg.name
             state = await self._tmux.refresh_structure(conn_cfg.name)
             self._conn_tree.set_state(conn_cfg.name, state)
+
+            # Auto-select the first session and its first window
+            if state.session_list:
+                first_session = state.session_list[0]
+                self._current_session = first_session.name
+                self._window_tabs.set_windows(first_session.windows)
+                if first_session.windows:
+                    first_win = min(
+                        first_session.windows.values(), key=lambda w: w.window_index
+                    )
+                    self._current_window_index = first_win.window_index
+                    self._pane_layout.set_window(first_win)
+
             self._structure_timer.start()
             self._content_timer.start()
             self._set_actions_enabled(True)
+            self._update_status_bar()
         except Exception as exc:
             QMessageBox.critical(self, "Connection Failed", str(exc))
 
@@ -438,7 +452,7 @@ class MainWindow(QMainWindow):
 
     def _run_async(self, coro) -> None:
         """Schedule a coroutine with error logging."""
-        task = self._run_async(coro)
+        task = asyncio.ensure_future(coro)
         task.add_done_callback(self._on_async_done)
 
     def _on_async_done(self, task: asyncio.Task) -> None:
