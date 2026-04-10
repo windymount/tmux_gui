@@ -54,6 +54,7 @@ class AppConfig:
 
     def save(self, path: Path = DEFAULT_CONFIG_FILE) -> None:
         import stat
+        import tempfile
 
         path.parent.mkdir(parents=True, exist_ok=True)
         # Restrict directory permissions (owner-only on POSIX)
@@ -61,8 +62,21 @@ class AppConfig:
             path.parent.chmod(stat.S_IRWXU)
         except OSError:
             pass  # Windows doesn't support POSIX chmod
+
         data = asdict(self)
-        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        content = json.dumps(data, indent=2)
+
+        # Atomic write: write to temp file first, then rename.
+        # Prevents leaving an empty/corrupt config if interrupted mid-write.
+        try:
+            fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+            with open(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            Path(tmp).replace(path)
+        except OSError:
+            # Fallback: direct write (e.g., if rename across drives fails)
+            path.write_text(content, encoding="utf-8")
+
         try:
             path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         except OSError:
@@ -75,7 +89,11 @@ class AppConfig:
             logger.info("No config file at %s — using defaults", path)
             return cls()
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8").strip()
+            if not text:
+                logger.warning("Config file %s is empty — using defaults", path)
+                return cls()
+            data = json.loads(text)
             conns = [ConnectionConfig(**c) for c in data.get("connections", [])]
             poll = PollConfig(**data.get("poll", {}))
             return cls(
